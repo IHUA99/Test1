@@ -1,0 +1,83 @@
+name: Main Branch Build and Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3  # 更新到最新版本
+
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Build with Maven
+        run: mvn clean package -DskipTests
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2  # 更新到最新版本
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Docker Build and Push (Snapshot)
+        uses: docker/build-push-action@v4  # 更新到最新版本
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ihua99/test:snapshot-${{ github.sha }}	#更改成自己，
+            ihua99/test:snapshot
+
+  deploy:
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Ubuntu
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.port }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          #password: ${{ secrets.PASSWORD }}
+          timeout: 30s
+          script: |
+            # 确保Docker已安装
+            if ! command -v docker &> /dev/null; then
+                echo "Docker not found. Installing Docker..."
+                sudo apt-get update
+                sudo apt-get install -y docker.io
+                sudo systemctl start docker
+                sudo systemctl enable docker
+                # 添加当前用户到docker组，避免每次都需要sudo
+                sudo usermod -aG docker $USER
+            fi
+            
+            # 确保Docker服务正在运行
+            sudo systemctl is-active --quiet docker || sudo systemctl start docker
+            
+            # 拉取最新的快照镜像
+            sudo docker pull ihua99/test:snapshot
+            
+            # 停止并删除旧容器
+            sudo docker stop main-test-container || true
+            sudo docker rm main-test-container || true
+            
+            # 运行新容器
+            # 使用sudo确保有足够权限
+            sudo docker run -d --name main-test-container -p 8066:8066 ihua99/test:snapshot
+            
+            # 验证容器是否成功启动
+            echo "验证容器状态:"
+            sudo docker ps -a | grep main-test-container
