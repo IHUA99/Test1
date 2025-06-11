@@ -36,7 +36,7 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ihua99/test:snapshot-${{ github.sha }}	#更改成自己，
+            ihua99/test:snapshot-${{ github.sha }}
             ihua99/test:snapshot
 
   deploy:
